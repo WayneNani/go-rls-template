@@ -1,0 +1,47 @@
+# Security-relevant paths need approval from the security owners.
+# Replace the placeholder teams before the first push, and enable
+# "Require review from Code Owners" in the branch ruleset (scripts/github-ruleset.sh).
+# Without that enforcement this file only suggests reviewers. Other platforms: README,
+# "Not on GitHub?".
+*                                   @your-org/maintainers
+
+/proto/                             @your-org/security
+# Who may do what: the business owner and security review it (either may approve;
+# require both through the ruleset's required reviewers if needed).
+/docs/access-matrix.md              @your-org/security @your-org/product-owner
+/internal/authz/                    @your-org/security
+/internal/auth/                     @your-org/security
+/internal/web/web.go                @your-org/security
+/internal/ratelimit/                @your-org/security
+/frontend/src/trusted-types.ts      @your-org/security
+/frontend/src/csp-report.ts         @your-org/security
+/frontend/src/csp-nonce.ts          @your-org/security
+/.githooks/                         @your-org/security
+/scripts/                           @your-org/security
+/internal/store/migrations/         @your-org/security
+/internal/store/store.go            @your-org/security
+/internal/store/invariants_test.go  @your-org/security
+/internal/api/contract_test.go      @your-org/security
+/internal/api/matrix_test.go        @your-org/security
+/internal/api/api.go                @your-org/security
+/internal/testdb/                   @your-org/security
+/dev/roles.sql                      @your-org/security
+/cmd/server/                        @your-org/security
+/cmd/scaffold/                      @your-org/security
+
+/go.mod                             @your-org/security
+/tools/                             @your-org/security
+/frontend/package.json              @your-org/security
+/frontend/pnpm-workspace.yaml       @your-org/security
+/frontend/pnpm-lock.yaml            @your-org/security
+/frontend/e2e/                      @your-org/security
+/frontend/playwright.config.ts      @your-org/security
+/frontend/eslint.config.js          @your-org/security
+/.golangci.yml                      @your-org/security
+/renovate.json                      @your-org/security
+/Dockerfile                         @your-org/security
+/Makefile                           @your-org/security
+/compose.yaml                       @your-org/security
+/.github/                           @your-org/security
+/CLAUDE.md                          @your-org/security
+/.claude/                           @your-org/security

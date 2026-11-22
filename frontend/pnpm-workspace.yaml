@@ -1,0 +1,6 @@
+# Supply chain defaults:
+# - releases younger than 7 days are not installed (most hijacked versions are pulled by then);
+#   for an urgent security fix add the package to minimumReleaseAgeExclude in the same PR
+# - install scripts stay off (pnpm 10 default); only packages listed here may run them
+minimumReleaseAge: 10080
+onlyBuiltDependencies: []

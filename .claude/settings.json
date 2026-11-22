@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && { [ -z \"$(git status --porcelain)\" ] || make -s check 1>&2 || exit 2; }"
+          }
+        ]
+      }
+    ]
+  }
+}

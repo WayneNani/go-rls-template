@@ -1,0 +1,112 @@
+syntax = "proto3";
+
+package app.v1;
+
+import "authz/v1/authz.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "example.com/starter/gen/app/v1;appv1";
+
+// AppService is the whole API. Every method declares the privilege it needs.
+service AppService {
+  // WhoAmI returns the signed-in user with roles and privileges per org.
+  rpc WhoAmI(WhoAmIRequest) returns (WhoAmIResponse) {
+    option (authz.v1.privilege) = "authenticated";
+  }
+
+  // ListProjects returns the projects the caller may read. Postgres RLS filters the rows.
+  rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse) {
+    option (authz.v1.privilege) = "project.read";
+  }
+
+  // CreateProject adds a project to an org where the caller holds project.write.
+  rpc CreateProject(CreateProjectRequest) returns (CreateProjectResponse) {
+    option (authz.v1.privilege) = "project.write";
+  }
+
+  // UpdateProject renames a project. version is the one the caller read; if the project
+  // changed since, it fails with ABORTED and the caller reloads (no lost update).
+  rpc UpdateProject(UpdateProjectRequest) returns (UpdateProjectResponse) {
+    option (authz.v1.privilege) = "project.write";
+  }
+}
+
+message WhoAmIRequest {}
+
+message WhoAmIResponse {
+  string subject = 1;
+  string display_name = 2;
+  string email = 3;
+  repeated Role roles = 4;
+  repeated OrgPrivilege privileges = 5;
+  int64 user_id = 6;
+}
+
+message Role {
+  int64 org_id = 1;
+  string org_name = 2;
+  string role = 3;
+  // "local" (assigned in the app) or "idp" (mapped from an IdP group at login).
+  string source = 4;
+}
+
+message OrgPrivilege {
+  int64 org_id = 1;
+  string privilege = 2;
+}
+
+message ListProjectsRequest {
+  // Maximum number of projects to return: 1 to 100, 0 means 50.
+  int32 page_size = 1 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+  // next_page_token from the previous response; empty for the first page.
+  string page_token = 2 [(buf.validate.field).string.max_len = 512];
+  // Only projects whose name contains this text, ignoring case; empty for all. Send the same
+  // query with every page_token of the list.
+  string query = 3 [(buf.validate.field).string.max_len = 100];
+}
+
+message ListProjectsResponse {
+  repeated Project projects = 1;
+  // Pass as page_token to get the next page; empty when there are no more projects.
+  string next_page_token = 2;
+}
+
+message Project {
+  int64 id = 1;
+  string name = 2;
+  int64 org_id = 3;
+  string org_name = 4;
+  google.protobuf.Timestamp created_at = 5;
+  // Send it back with UpdateProject.
+  int64 version = 6;
+}
+
+message CreateProjectRequest {
+  int64 org_id = 1 [(buf.validate.field).int64.gt = 0];
+  // Trimmed; the CHECK constraint on app.projects.name is the same.
+  string name = 2 [(buf.validate.field).cel = {
+    id: "project.name"
+    message: "must be 1 to 100 characters"
+    expression: "this.trim().size() >= 1 && this.trim().size() <= 100"
+  }];
+}
+
+message CreateProjectResponse {
+  int64 id = 1;
+}
+
+message UpdateProjectRequest {
+  int64 id = 1 [(buf.validate.field).int64.gt = 0];
+  // The version the caller read (Project.version).
+  int64 version = 2 [(buf.validate.field).int64.gt = 0];
+  string name = 3 [(buf.validate.field).cel = {
+    id: "project.name"
+    message: "must be 1 to 100 characters"
+    expression: "this.trim().size() >= 1 && this.trim().size() <= 100"
+  }];
+}
+
+message UpdateProjectResponse {
+  int64 version = 1;
+}

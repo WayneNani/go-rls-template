@@ -1,0 +1,7 @@
+/frontend/node_modules/
+/internal/web/dist/*
+!/internal/web/dist/.gitkeep
+.env*
+*.local
+/frontend/test-results/
+/frontend/playwright-report/

@@ -1,0 +1,36 @@
+# Local development only. Images pinned by digest; Renovate updates them.
+services:
+  db:
+    image: postgres:18-alpine@sha256:c69207a837b37339d626d730b7fe0cdd5445733fa1a9f61a65c0297a525e761f
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: app
+    ports: ["127.0.0.1:55433:5432"]
+    volumes:
+      - ./dev/roles.sql:/docker-entrypoint-initdb.d/01-roles.sql:ro
+      - ./dev/db.sql:/docker-entrypoint-initdb.d/02-db.sql:ro
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      # TCP, not the socket: during first-start init scripts only the socket is up.
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "app"]
+      interval: 2s
+      retries: 30
+
+  # Stand-in for a real IdP: any username becomes the subject, optional claims
+  # (e.g. {"groups": ["acme-editors"]}) can be typed on the login form.
+  idp:
+    image: ghcr.io/navikt/mock-oauth2-server@sha256:d18e332ee200144a0a9a109d66676f050bd5f91568b8e7cf7d108d6b0c70cfa3
+    environment:
+      SERVER_PORT: "8080"
+      JSON_CONFIG: '{"interactiveLogin": true}'
+    ports: ["127.0.0.1:8091:8080"]
+
+  # Optional trace UI (`make up-otel`): http://127.0.0.1:16686. Receives OTLP over HTTP on
+  # 127.0.0.1:54318; the server exports only with OTEL_EXPORTER_OTLP_ENDPOINT set (README).
+  jaeger:
+    image: jaegertracing/jaeger:2.23.0@sha256:3823829974ccfc2485d2e48b165579091f32295022ae80ca49704e2f4834116e
+    profiles: ["otel"]
+    ports: ["127.0.0.1:16686:16686", "127.0.0.1:54318:4318"]
+
+volumes:
+  pgdata: {}

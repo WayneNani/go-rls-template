@@ -1,0 +1,75 @@
+# Security rules of this template. Changing them needs security review (CODEOWNERS).
+version: "2"
+
+linters:
+  enable:
+    - nolintlint
+    - gosec
+    - forbidigo
+    - depguard
+    - errorlint
+    - bodyclose
+    - noctx
+
+  settings:
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    forbidigo:
+      forbid:
+        - pattern: ^http\.(Handle|HandleFunc|ListenAndServe|NewServeMux)$
+          msg: routes are registered in cmd/server routes() only
+        - pattern: ^\w+connect\.New\w+Handler$
+          msg: mount Connect services only in internal/api/api.go, which attaches the authz interceptor
+        - pattern: ^template\.(HTML|HTMLAttr|JS|JSStr|CSS|URL|Srcset)$
+          msg: bypasses html/template escaping
+        - pattern: ^authz\.WithUser$
+          msg: tests only, it fakes a fresh sign-in and passes every step-up check; requests use authz.WithSignIn
+        - pattern: ^otel\.Set(TracerProvider|TextMapPropagator|MeterProvider)$
+          msg: telemetry is set up in internal/telemetry (Setup) only
+        - pattern: ^otelpgx\.WithIncludeQueryParameters$
+          msg: query arguments must never reach spans (internal/store/trace_test.go)
+
+    depguard:
+      rules:
+        database:
+          files: ["$all", "!**/internal/store/**", "!**/internal/testdb/**"]
+          deny:
+            - pkg: github.com/jackc/pgx
+              desc: database access only through internal/store (RLS identity per transaction)
+            - pkg: database/sql
+              desc: database access only through internal/store
+            - pkg: github.com/pressly/goose
+              desc: migrations only through internal/store
+            - pkg: github.com/exaring/otelpgx
+              desc: database spans only through internal/store, which redacts errors (trace.go)
+        telemetry:
+          files: ["$all", "!$test", "!**/internal/telemetry/**"]
+          deny:
+            - pkg: go.opentelemetry.io/otel/sdk
+              desc: the tracer provider is set up in internal/telemetry only
+            - pkg: go.opentelemetry.io/otel/exporters
+              desc: exporters are set up in internal/telemetry only (off unless OTEL_EXPORTER_OTLP_ENDPOINT)
+        identity:
+          files: ["$all", "!**/internal/auth/**"]
+          deny:
+            - pkg: github.com/coreos/go-oidc
+              desc: only internal/auth reads ID token claims
+            - pkg: golang.org/x/oauth2
+              desc: only internal/auth talks to the IdP
+
+  exclusions:
+    generated: strict
+    rules:
+      - path: cmd/server/
+        text: routes are registered in cmd/server
+        linters: [forbidigo]
+      - path: internal/api/api\.go
+        text: mount Connect services only in internal/api
+        linters: [forbidigo]
+      - path: _test\.go$
+        text: (tests only, it fakes a fresh sign-in|telemetry is set up in internal/telemetry)
+        linters: [forbidigo]
+      - path: internal/telemetry/
+        text: telemetry is set up in internal/telemetry
+        linters: [forbidigo]

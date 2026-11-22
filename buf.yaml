@@ -1,0 +1,9 @@
+version: v2
+modules:
+  - path: proto
+# Pinned to the commit buf.build/go/protovalidate was generated from (go.mod); buf.lock holds the digest.
+deps:
+  - buf.build/bufbuild/protovalidate:511051f7f4374c3ca873b53ae68a9288
+lint:
+  use:
+    - STANDARD

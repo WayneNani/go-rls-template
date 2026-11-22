@@ -1,0 +1,16 @@
+# All generators run locally at pinned versions (go.mod tool directives,
+# frontend lockfile), so code generation needs no remote plugin service.
+version: v2
+clean: true
+plugins:
+  - local: ["go", "tool", "protoc-gen-go"]
+    out: gen
+    opt: paths=source_relative
+  - local: ["go", "tool", "protoc-gen-connect-go"]
+    out: gen
+    opt: paths=source_relative
+  - local: frontend/node_modules/.bin/protoc-gen-es
+    out: frontend/src/gen
+    opt: target=ts
+    # buf/validate/validate_pb.ts: the TS code imports it, and the UI reads Violations from it.
+    include_imports: true

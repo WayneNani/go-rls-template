@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Runs before every commit (installed by `make setup` via core.hooksPath).
+# Bypassing it with --no-verify does not help: CI runs the same checks.
+set -euo pipefail
+go tool -modfile=tools/gitleaks/go.mod gitleaks git --staged --redact --no-banner
+make -s lint

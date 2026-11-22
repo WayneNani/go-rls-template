@@ -1,0 +1,309 @@
+{{- /* The screen: DataTable over the paged list, a create and an edit dialog sharing the fields. */ -}}
+import { Code, ConnectError } from "@connectrpc/connect";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Pencil, Plus } from "lucide-react";
+import { useState } from "react";
+
+import { type Column, DataTable } from "@/components/data-table";
+import { FieldError } from "@/components/field-error";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import type { WhoAmIResponse } from "@/gen/app/v1/app_pb";
+import type { {{.Pascal}} } from "@/gen/app/v1/{{.Name}}_pb";
+import { {{.Camel}}Service, errorMessage, hasPrivilege, orgsWith } from "@/lib/api";
+import { fieldErrors, invalidProps } from "@/lib/field-errors";
+import { usePagedList } from "@/lib/paged-list";
+{{- if .HasType "date"}}
+
+// Dates are days (YYYY-MM-DD) without a time zone: format them as UTC so no offset moves the day.
+const dayFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeZone: "UTC" });
+{{- end}}
+
+// Columns other than the {{.Label.Name}} and the organization are left out on phones.
+const columns: Column<{{.Pascal}}>[] = [
+{{- range .Fields}}
+{{- if eq .Name $.Label.Name}}
+  { header: "{{.Human}}", cell: (r) => <span className="font-medium">{r.{{.Camel}}}</span> },
+{{- else if eq .Type "text"}}
+  { header: "{{.Human}}", cell: (r) => r.{{.Camel}}, className: "hidden sm:table-cell" },
+{{- else if eq .Type "int"}}
+  { header: "{{.Human}}", cell: (r) => String(r.{{.Camel}}), className: "hidden text-right sm:table-cell" },
+{{- else if eq .Type "date"}}
+  { header: "{{.Human}}", cell: (r) => dayFormat.format(new Date(r.{{.Camel}})), className: "hidden sm:table-cell" },
+{{- else if eq .Type "bool"}}
+  { header: "{{.Human}}", cell: (r) => (r.{{.Camel}} ? "Yes" : "No"), className: "hidden sm:table-cell" },
+{{- end}}
+{{- end}}
+  { header: "Organization", cell: (r) => <Badge variant="secondary">{r.orgName}</Badge> },
+];
+
+export function {{.PluralPascal}}Page({ me }: { me: WhoAmIResponse }) {
+  const list = usePagedList(
+    ["{{.PluralCamel}}"],
+    (pageToken, query) => {{.Camel}}Service.list{{.PluralPascal}}({ pageSize: 20, pageToken, query }),
+    (page) => page.{{.PluralCamel}},
+  );
+  // Only a hint for the UI. The server decides (interceptor + RLS).
+  const writableOrgs = orgsWith(me, "{{.Name}}.write");
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{{.Title}}</CardTitle>
+        <CardDescription>Everything you can see is filtered by the database.</CardDescription>
+        {writableOrgs.length > 0 && (
+          <CardAction>
+            <New{{.Pascal}}Dialog orgs={writableOrgs} />
+          </CardAction>
+        )}
+      </CardHeader>
+      <CardContent>
+        <DataTable
+          list={list}
+          columns={columns}
+          rowKey={(r) => String(r.id)}
+          label="{{.Title}}"
+          filterLabel="Filter {{.HumanPlural}}"
+          empty={<p className="py-10 text-center text-sm text-muted-foreground">No {{.HumanPlural}} yet.</p>}
+          actions={(r) => hasPrivilege(me, "{{.Name}}.write", r.orgId) && <Edit{{.Pascal}}Dialog {{.Camel}}={r} />}
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
+// What the inputs show; toRequest converts once, on submit. The server checks the rules
+// (proto and database) and fieldErrors puts its answer at the field.
+interface Form {
+{{- range .Fields}}
+  {{.Camel}}: {{if eq .Type "bool"}}boolean{{else}}string{{end}};
+{{- end}}
+}
+
+const emptyForm: Form = { {{range $i, $f := .Fields}}{{if $i}}, {{end}}{{$f.Camel}}: {{if eq $f.Type "bool"}}false{{else}}""{{end}}{{end}} };
+
+function toForm(r: {{.Pascal}}): Form {
+  return { {{range $i, $f := .Fields}}{{if $i}}, {{end}}{{$f.Camel}}: {{if eq $f.Type "int"}}String(r.{{$f.Camel}}){{else}}r.{{$f.Camel}}{{end}}{{end}} };
+}
+
+function toRequest(f: Form) {
+  return { {{range $i, $f := .Fields}}{{if $i}}, {{end}}{{$f.Camel}}: {{if eq $f.Type "int"}}BigInt(f.{{$f.Camel}}){{else}}f.{{$f.Camel}}{{end}}{{end}} };
+}
+
+function {{.Pascal}}Fields({
+  id,
+  form,
+  setForm,
+  errors,
+}: {
+  id: string;
+  form: Form;
+  setForm: (form: Form) => void;
+  errors: Record<string, string>;
+}) {
+  return (
+    <>
+{{- range .Fields}}
+{{- if eq .Type "bool"}}
+      <div className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          id={`${id}-{{.Name}}`}
+          className="size-4 accent-primary"
+          checked={form.{{.Camel}}}
+          onChange={(e) => setForm({ ...form, {{.Camel}}: e.target.checked })}
+          {...invalidProps(errors.{{.Name}}, `${id}-{{.Name}}`)}
+        />
+        <Label htmlFor={`${id}-{{.Name}}`}>{{.Human}}</Label>
+        <FieldError message={errors.{{.Name}}} id={`${id}-{{.Name}}`} />
+      </div>
+{{- else}}
+      <div className="space-y-2">
+        <Label htmlFor={`${id}-{{.Name}}`}>{{.Human}}</Label>
+        <Input
+          id={`${id}-{{.Name}}`}
+{{- if eq .Type "int"}}
+          type="number"
+          inputMode="numeric"
+          step={1}
+{{- else if eq .Type "date"}}
+          type="date"
+{{- end}}
+          value={form.{{.Camel}}}
+          onChange={(e) => setForm({ ...form, {{.Camel}}: e.target.value })}
+          required
+          {...invalidProps(errors.{{.Name}}, `${id}-{{.Name}}`)}
+        />
+        <FieldError message={errors.{{.Name}}} id={`${id}-{{.Name}}`} />
+      </div>
+{{- end}}
+{{- end}}
+    </>
+  );
+}
+
+function New{{.Pascal}}Dialog({ orgs }: { orgs: { id: bigint; name: string }[] }) {
+  const [open, setOpen] = useState(false);
+  const [orgId, setOrgId] = useState(orgs.length === 1 && orgs[0] ? String(orgs[0].id) : "");
+  const [form, setForm] = useState(emptyForm);
+  const queryClient = useQueryClient();
+
+  const create = useMutation({
+    mutationFn: () => {{.Camel}}Service.create{{.Pascal}}({ orgId: BigInt(orgId), ...toRequest(form) }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["{{.PluralCamel}}"] });
+      setOpen(false);
+      setForm(emptyForm);
+    },
+  });
+
+  const errors = fieldErrors(create.error);
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        create.reset();
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button size="sm">
+          <Plus />
+          New {{.Human}}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            create.mutate();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>New {{.Human}}</DialogTitle>
+            <DialogDescription>Only organizations where you may create {{.HumanPlural}} are listed.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="new-{{.Kebab}}-org">Organization</Label>
+            <Select value={orgId} onValueChange={setOrgId}>
+              <SelectTrigger id="new-{{.Kebab}}-org" className="w-full" {...invalidProps(errors.org_id, "new-{{.Kebab}}-org")}>
+                <SelectValue placeholder="Choose an organization" />
+              </SelectTrigger>
+              <SelectContent>
+                {orgs.map((o) => (
+                  <SelectItem key={String(o.id)} value={String(o.id)}>
+                    {o.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <FieldError message={errors.org_id} id="new-{{.Kebab}}-org" />
+          </div>
+          <{{.Pascal}}Fields id="new-{{.Kebab}}" form={form} setForm={setForm} errors={errors} />
+          {create.isError && (
+            <Alert variant="destructive">
+              <AlertDescription>{errorMessage(create.error)}</AlertDescription>
+            </Alert>
+          )}
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button type="submit" disabled={!orgId || create.isPending}>
+              Create
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Sends the version it read: if someone changed the {{.Human}} in between, the server answers
+// Aborted instead of overwriting their change, and the list is reloaded.
+function Edit{{.Pascal}}Dialog({ {{.Camel}} }: { {{.Camel}}: {{.Pascal}} }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState(() => toForm({{.Camel}}));
+  const queryClient = useQueryClient();
+
+  const update = useMutation({
+    mutationFn: () => {{.Camel}}Service.update{{.Pascal}}({ id: {{.Camel}}.id, version: {{.Camel}}.version, ...toRequest(form) }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["{{.PluralCamel}}"] });
+      setOpen(false);
+    },
+    onError: async (err) => {
+      if (ConnectError.from(err).code === Code.Aborted) {
+        await queryClient.invalidateQueries({ queryKey: ["{{.PluralCamel}}"] });
+      }
+    },
+  });
+
+  const errors = fieldErrors(update.error);
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        setForm(toForm({{.Camel}}));
+        update.reset();
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="icon-sm" aria-label={`Edit ${ {{- .Camel}}.{{.Label.Camel -}} }`}>
+          <Pencil />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            update.mutate();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Edit {{.Human}}</DialogTitle>
+            <DialogDescription>{ {{- .Camel}}.orgName}</DialogDescription>
+          </DialogHeader>
+          <{{.Pascal}}Fields id="edit-{{.Kebab}}" form={form} setForm={setForm} errors={errors} />
+          {update.isError && (
+            <Alert variant="destructive">
+              <AlertDescription>{errorMessage(update.error)}</AlertDescription>
+            </Alert>
+          )}
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button type="submit" disabled={update.isPending}>
+              Save
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}

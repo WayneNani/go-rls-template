@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package authz.v1;
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = "example.com/starter/gen/authz/v1;authzv1";
+
+extend google.protobuf.MethodOptions {
+  // Privilege a caller needs: a code from app.privileges, "authenticated" (any
+  // signed-in user) or "public" (no session; must be on the allowlist in
+  // internal/api/contract_test.go). A method without it is always denied.
+  string privilege = 50001;
+
+  // Step-up: the caller must have signed in at the IdP at most this many seconds ago,
+  // else the call fails with FailedPrecondition "recent sign-in required" and the
+  // frontend offers a re-authentication (max_age=0). Checked after the privilege.
+  // internal/api/contract_test.go requires it on every method that changes access.
+  uint32 max_auth_age = 50002;
+}

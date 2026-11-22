@@ -1,0 +1,147 @@
+syntax = "proto3";
+
+package access.v1;
+
+import "authz/v1/authz.proto";
+import "buf/validate/validate.proto";
+
+option go_package = "example.com/starter/gen/access/v1;accessv1";
+
+// AccessService manages who holds which role in an org. The guards (no self-changes,
+// no escalation, IdP roles read-only) are RLS policies in migration 00004.
+service AccessService {
+  // ListRoles returns the role catalog with each role's privileges.
+  rpc ListRoles(ListRolesRequest) returns (ListRolesResponse) {
+    option (authz.v1.privilege) = "authenticated";
+  }
+
+  // ListMembers returns the users holding a role in the org, with their roles.
+  rpc ListMembers(ListMembersRequest) returns (ListMembersResponse) {
+    option (authz.v1.privilege) = "access.manage";
+  }
+
+  // GrantRole gives a signed-in-before user, found by exact email, a role in the org.
+  rpc GrantRole(GrantRoleRequest) returns (GrantRoleResponse) {
+    option (authz.v1.privilege) = "access.manage";
+    option (authz.v1.max_auth_age) = 600;
+  }
+
+  // RevokeRole removes a role the app assigned (IdP roles are read-only).
+  rpc RevokeRole(RevokeRoleRequest) returns (RevokeRoleResponse) {
+    option (authz.v1.privilege) = "access.manage";
+    option (authz.v1.max_auth_age) = 600;
+  }
+
+  // ListGroupMappings returns which IdP groups grant which roles in the org, a page at a time.
+  rpc ListGroupMappings(ListGroupMappingsRequest) returns (ListGroupMappingsResponse) {
+    option (authz.v1.privilege) = "access.manage";
+  }
+
+  // AddGroupMapping makes members of an IdP group (by group ID) hold a role in the org.
+  rpc AddGroupMapping(AddGroupMappingRequest) returns (AddGroupMappingResponse) {
+    option (authz.v1.privilege) = "access.manage";
+    option (authz.v1.max_auth_age) = 600;
+  }
+
+  // RemoveGroupMapping removes a mapping; members lose the role at their next sign-in.
+  rpc RemoveGroupMapping(RemoveGroupMappingRequest) returns (RemoveGroupMappingResponse) {
+    option (authz.v1.privilege) = "access.manage";
+    option (authz.v1.max_auth_age) = 600;
+  }
+}
+
+message RoleDefinition {
+  string code = 1;
+  repeated string privileges = 2;
+}
+
+message ListRolesRequest {}
+
+message ListRolesResponse {
+  repeated RoleDefinition roles = 1;
+}
+
+message Member {
+  int64 user_id = 1;
+  string subject = 2;
+  string email = 3;
+  string display_name = 4;
+  repeated MemberRole roles = 5;
+}
+
+message MemberRole {
+  string role = 1;
+  // "local" (assigned in the app, can be revoked here) or "idp" (from an IdP group).
+  string source = 2;
+}
+
+message ListMembersRequest {
+  int64 org_id = 1 [(buf.validate.field).int64.gt = 0];
+  // 1 to 100, 0 means 50.
+  int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+  string page_token = 3 [(buf.validate.field).string.max_len = 512];
+  // Only users whose display name or subject contains this text, ignoring case; empty for all.
+  // Not the email: app_rw cannot read it (sensitive), and matching it would reveal it.
+  string query = 4 [(buf.validate.field).string.max_len = 100];
+}
+
+message ListMembersResponse {
+  repeated Member members = 1;
+  string next_page_token = 2;
+}
+
+message GrantRoleRequest {
+  int64 org_id = 1 [(buf.validate.field).int64.gt = 0];
+  string email = 2 [(buf.validate.field).string = {email: true, max_len: 254}];
+  // A code of app.roles. Only its shape is checked here: roles are data (migrations, and
+  // tests add their own), the foreign key and RLS decide.
+  string role = 3 [(buf.validate.field).string = {min_len: 1, max_len: 63, pattern: "^[a-z][a-z0-9_]*$"}];
+}
+
+message GrantRoleResponse {}
+
+message RevokeRoleRequest {
+  int64 org_id = 1 [(buf.validate.field).int64.gt = 0];
+  int64 user_id = 2 [(buf.validate.field).int64.gt = 0];
+  string role = 3 [(buf.validate.field).string = {min_len: 1, max_len: 63, pattern: "^[a-z][a-z0-9_]*$"}];
+}
+
+message RevokeRoleResponse {}
+
+message GroupMapping {
+  string group_id = 1;
+  string role = 2;
+}
+
+message ListGroupMappingsRequest {
+  int64 org_id = 1 [(buf.validate.field).int64.gt = 0];
+  // 1 to 100, 0 means 50.
+  int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+  string page_token = 3 [(buf.validate.field).string.max_len = 1024];
+}
+
+message ListGroupMappingsResponse {
+  repeated GroupMapping mappings = 1;
+  string next_page_token = 2;
+}
+
+message AddGroupMappingRequest {
+  int64 org_id = 1 [(buf.validate.field).int64.gt = 0];
+  // Trimmed before it is stored.
+  string group_id = 2 [(buf.validate.field).cel = {
+    id: "group_id"
+    message: "must be 1 to 256 characters"
+    expression: "this.trim().size() >= 1 && this.trim().size() <= 256"
+  }];
+  string role = 3 [(buf.validate.field).string = {min_len: 1, max_len: 63, pattern: "^[a-z][a-z0-9_]*$"}];
+}
+
+message AddGroupMappingResponse {}
+
+message RemoveGroupMappingRequest {
+  int64 org_id = 1 [(buf.validate.field).int64.gt = 0];
+  string group_id = 2 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+  string role = 3 [(buf.validate.field).string = {min_len: 1, max_len: 63, pattern: "^[a-z][a-z0-9_]*$"}];
+}
+
+message RemoveGroupMappingResponse {}
